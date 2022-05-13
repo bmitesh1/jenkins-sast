@@ -1,0 +1,61 @@
+import sys
+import os
+from java.lang import System
+import getopt
+import base64
+
+
+
+########################################################################
+# Function to connect to WebLogic Domain.
+########################################################################
+
+def connectToDomain():
+    try:
+        connect("{{ username }}", "{{ password }}", "{{ WeblogicSSLType }}://{{ serverHostUrl }}:{{ portnumber }}", adminServerName='AdminServer')
+        print 'Successfully connected to the domain\n'
+    except:
+        print 'The domain is unreacheable. Please try again\n'
+        exit()
+
+
+
+########################################################################
+# Program Execution Starts Here
+########################################################################
+
+if __name__=='__main__' or __name__== 'main':
+
+  connectToDomain();
+  servers = cmo.getServers()
+  domainRuntime()  
+  stoppedServers = []
+  for server in servers:  
+   try:  
+     cd('/ServerRuntimes/' + server.getName())  
+     currentState = get('HealthState').getState()
+     print "*****************************************"   
+     if currentState == 0:
+      print "Server "+ server.getName() + ' is : ' + get('State') + " and Server Health State is " + ': HEALTH_OK'
+     elif currentState == 1:  
+      print server.getName() + ': ' + get('State') + ': HEALTH_WARN'  
+     elif currentState == 2:  
+      print server.getName() + ': ' + get('State') + ': HEALTH_CRITICAL'  
+      stoppedServers.append(server.getName())  
+     elif currentState == 3:  
+      print server.getName() + ': ' + get('State') + ': HEALTH_FAILED'  
+      stoppedServers.append(server.getName())  
+     elif currentState == 4:  
+      print server.getName() + ': ' + get('State') + ': HEALTH_OVERLOADED'  
+     else:  
+      print server.getName() + ': ' + get('State') + ': UNKNOWN HEALTH STATE (' + currentState + ')'  
+     print "*****************************************" 
+   except WLSTException, e:
+     print "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     print "Server "+ server.getName() + " is not running. Please check"
+     print "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     stoppedServers.append(server.getName())
+  print ""
+  disconnect();
+  exit();
+  print "************************* Health Status Check Completed *******************************************************"

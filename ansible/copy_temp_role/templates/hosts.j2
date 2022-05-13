@@ -1,0 +1,11 @@
+{% if envtype == 'DEV' and appname == 'oit-valuenavigator-dev' and deploy_type == 'APP' %}
+[{{ envtype }}]
+{{ serverHostUrl }} ansible_connection=ssh ansible_ssh_user=appjenk ansible_ssh_password=AutoHe1p@54321
+{% elif envtype == 'DEV' and appname == 'oit-valuenavigator-dev' and deploy_type == 'DB' %}
+[{{ envtype }}]
+{{ serverHostUrl }} ansible_connection=ssh ansible_ssh_user=appjenk ansible_ssh_private_key_file=./servkey.pem
+{% else %}
+[{{ envtype }}]
+{{ serverHostUrl }} ansible_connection=ssh ansible_ssh_user=appjenk ansible_ssh_private_key_file=./servkey.pem
+{% endif %}
+

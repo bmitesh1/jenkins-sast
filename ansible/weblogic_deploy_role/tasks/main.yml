@@ -1,0 +1,65 @@
+---
+- name: Create directory
+  file:
+    name: "{{ deployDirectory }}/{{ deploymentName }}/"
+    state: directory
+    mode: "1777"
+
+- name: Copy deploy package
+  copy:
+    src: "{{ deploymentFile }}"
+    dest: "{{ deployDirectory }}/{{ deploymentName }}/"
+    remote_src: no
+
+- name: Copy deploy script
+  template: 
+    src: "{{ item }}.j2"
+    dest: "{{ deployDirectory }}/{{ deploymentName }}/{{ item }}.py"
+  with_items: 
+    - deployWeblogic
+    - monitorWeblogic
+
+- name: Run status check command before deployment
+  shell: source {{ wlst_location_home }}/bin/setWLSEnv.sh && java weblogic.WLST {{ deployDirectory }}/{{ deploymentName }}/monitorWeblogic.py
+  register: statusout_before
+  ignore_errors: yes
+
+- name: Health Status Output before deployment
+  debug: msg="{{ statusout_before.stdout }}"
+  when: statusout_before.rc != 1
+- block:
+  - fail:
+      msg: "====================================Some of the Managed Servers are not running. Please check =========================================="
+    when: "{{ statusout_before.stdout is search('is not running') }}"
+  when: statusout_before.rc != 1
+- name: Run deploy command
+  shell: source {{ wlst_location_home }}/bin/setWLSEnv.sh && java weblogic.WLST {{ deployDirectory }}/{{ deploymentName }}/deployWeblogic.py
+  register: deployout
+  notify: Deploy Finish
+
+- name: Deploy Output
+  debug: msg="{{ deployout.stdout }}"
+
+- fail:
+    msg: "====================Deployment failed. Please check the console output log.============================="
+  when: "{{ deployout.stdout is search('failed') }}"
+
+- name: Run status check command after deployment
+  shell: source {{ wlst_location_home }}/bin/setWLSEnv.sh && java weblogic.WLST {{ deployDirectory }}/{{ deploymentName }}/monitorWeblogic.py
+  register: statusout_after
+
+- name: Health Status Output after deployment
+  debug: msg="{{ statusout_after.stdout }}"
+
+- name: Remove scripts
+  file:
+    name: "{{ deployDirectory }}/{{ deploymentName }}/{{ item }}"
+    state: absent
+  with_items:
+    - deployWeblogic.py
+    - monitorWeblogic.py
+
+- name: Remove deployment package
+  file:
+    name: "{{ deployDirectory }}/{{ deploymentName }}/{{ deploymentFile }}"
+    state: absent

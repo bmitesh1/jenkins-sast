@@ -1,0 +1,196 @@
+---
+- name: Create SQLFiles directory
+  file:
+    name: /home/appjenk/SQLFiles/
+    state: directory
+    mode: "1777"
+    recurse: yes
+- name: Create devops directory
+  file:
+    name: /home/appjenk/devops/
+    state: directory
+    mode: "1777"
+    recurse: yes
+- name: Copy the deployment script to target server
+  template:
+    src: database_deploy.j2
+    dest: /home/appjenk/devops/database_deploy.sh
+- name: Get sql filenames from workspace
+  shell: cat config-repo/{{ order_file_name }}|egrep '/|.sql'
+  args:
+    chdir: "{{ lookup('env', 'WORKSPACE') }}"
+  delegate_to: localhost
+  register: filename
+- name: Set fact
+  set_fact:
+    is_file: true
+  with_items: 
+    - "{{ filename.stdout_lines }}"
+  when: item|string is search('/')
+- name: Set fact
+  set_fact:
+    is_file: false
+  with_items: 
+    - "{{ filename.stdout_lines }}"
+  when: not item|string is search('/')
+
+- debug:
+    msg: "{{ filename.stdout_lines }}"
+- name: Copy order files to server path
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  copy:
+    src: "{{ JENKINS_WORKSPACE }}/config-repo/{{ order_file_name }}"
+    dest: "/home/appjenk/SQLFiles/"
+    remote_src: no
+
+- name: Create directory
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  file:
+    name: "/home/appjenk/SQLFiles/{{ item.rsplit('.sql',1)[0].rsplit('/',1)[0] }}/"
+    state: directory
+    mode: "1777"
+  with_items: 
+    - "{{ filename.stdout_lines }}"
+  when: item|string is search('/')
+- name: Copy sql files to server path
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  copy:
+    src: "{{ JENKINS_WORKSPACE }}/config-repo/{{ item }}"
+    dest: "/home/appjenk/SQLFiles/{{ item.rsplit('.sql',1)[0].rsplit('/',1)[0].replace('config-repo/', '') }}/"
+    remote_src: no  
+  with_items: 
+    - "{{ filename.stdout_lines }}"
+  when: item|string is search('/')
+- name: Get sql files inside sql file
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  shell: cat {{ JENKINS_WORKSPACE }}/config-repo/{{ item }}| grep '^@.*sql$'|awk ' { print $NF } '|tr -d '@'| grep '^[A-Za-z]'
+  with_items: 
+    - "{{ filename.stdout_lines }}"
+  register: _filename
+  delegate_to: localhost
+  when: item|string is search('/')
+  ignore_errors: yes
+- name: Get sub-sql directory names
+  file:
+    path: ./dir.txt
+    state: touch
+  delegate_to: localhost
+  when: is_file
+  ignore_errors: yes
+- name: Copy contents
+  copy:
+    dest: "./dir.txt"
+    content: |
+          {{ item.stdout_lines }}
+  delegate_to: localhost         
+  loop: "{{ _filename.results }}"
+  when: is_file and item.rc != 1
+  ignore_errors: yes
+- name: Get subsql file names
+  shell: cat ./dir.txt|sed 's/\"//g' |tr -d "[,']"|tr " " "\n" >> dir1.txt
+  #register: _filename
+  delegate_to: localhost
+  when: is_file
+  ignore_errors: yes
+- name: get filenames
+  shell: cat ./dir.txt|sed 's/\"//g' |tr -d "[,']"|tr " " "\n"
+  register: _file
+  delegate_to: localhost
+  when: is_file
+  ignore_errors: yes
+- debug:
+    msg: "{{ _file }}"
+  when: is_file
+- name: run rev command
+  shell: rev dir1.txt | cut -d "/" -f 2- | rev
+  register: _dirname
+  delegate_to: localhost
+  when: is_file
+  ignore_errors: yes
+- debug:
+    msg: "{{ _dirname.stdout_lines }}"
+  when: is_file
+  ignore_errors: yes
+- name: Create sub-sql directory
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  file:
+    name: /home/appjenk/SQLFiles/{{ item }}/
+    state: directory
+    mode: "1777"
+    recurse: yes
+  with_items: "{{ _dirname.stdout_lines }}"
+  when: is_file
+  ignore_errors: yes
+- debug:
+    msg: "{{ _file.stdout }}"
+  when: is_file
+  ignore_errors: yes
+- name: Copy sub-sql files to server path
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  copy:
+    src: "{{ JENKINS_WORKSPACE }}/config-repo/{{ item }}"
+    dest: "/home/appjenk/SQLFiles/{{ item.split('.sql',1)[0].rsplit('/',1)[0] }}"
+    remote_src: no
+  with_items: "{{ _file.stdout_lines }}"
+  when: is_file
+  ignore_errors: yes
+- name: Copy sql files to server path if the sqlfilenames doesnot have absolute path
+  vars:
+    JENKINS_WORKSPACE: "{{ lookup('env', 'WORKSPACE') }}"
+  copy:
+    src: "{{ JENKINS_WORKSPACE }}/config-repo/{{ item }}"
+    dest: "/home/appjenk/SQLFiles/"
+    remote_src: no
+    #with_items: 
+    #- "{{ filename.stdout_lines }}"
+  with_items: 
+    - "{{ filename.stdout_lines }}"
+  when: not item|string is search('/')
+  ignore_errors: yes
+- name: Run the sql script
+  shell: |
+         source /etc/profile && sh /home/appjenk/devops/database_deploy.sh > db_out.txt
+  args:
+    chdir: /home/appjenk/SQLFiles/
+  register: sql_output
+  ignore_unreachable: yes
+
+- debug:
+    msg: "{{ sql_output.stdout }}"
+  when: sql_output.changed
+
+- name: Display output
+  shell: |
+        cat /home/appjenk/SQLFiles/db_out.txt
+  register: db_out
+
+- debug:
+    msg: "{{ db_out.stdout }}"
+  when: db_out.changed
+
+- name: Find files for deleting except logs directory
+  find:
+    paths: /home/appjenk/SQLFiles/
+    recurse: true
+    file_type: directory
+    excludes: 'logs'
+  register: files_to_delete
+- name: Remove Files
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  with_items: "{{ files_to_delete.files }}"
+  
+- fail:
+      msg: "===================ERROR in execution of SQL scripts . Please check the error and correct the sql file =========================="
+  when: "{{ db_out.stdout is search('ERROR') }}"
+
+- fail:
+      msg: "===================Error in executing subsequent SQL Files. May be it misses exit statement at the end of sqlfile ========================="
+  when: "{{ not sql_output.changed }}"

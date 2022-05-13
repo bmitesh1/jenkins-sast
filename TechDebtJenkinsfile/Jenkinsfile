@@ -1,0 +1,139 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    options { skipDefaultCheckout()
+    buildDiscarder(
+        logRotator(
+            // number of build logs to keep
+            numToKeepStr:'5',
+            // history to keep in days
+            daysToKeepStr: '5',
+            // artifacts are kept for days
+            artifactDaysToKeepStr: '5',
+            // number of builds have their artifacts kept
+            artifactNumToKeepStr: '5'
+        )
+    )
+    ansiColor("xterm")
+    }
+    environment
+    {
+        ANSIBLE_FORCE_COLOR = true
+        pass = credentials('VNDEVKEY')
+        user = credentials('user')
+        JIRA_SERVER_PASSWORD = credentials('jira_service_account_password')
+        vndevsshpass = credentials('sshvndev')
+        vaultpassword = credentials('vaultkey')
+        ota_user = credentials('ota_user')
+        ota_pass = credentials('ota_pass')
+        oce_user = credentials('oce_user')
+        oce_pass = credentials('oce_pass')
+
+    }
+
+    parameters {
+        string(name: 'ENVIRONMENT', defaultValue: 'default', description: 'Application Environment.')
+        string(name: 'APP_REPO_BRANCH', defaultValue: 'default', description: 'Application Repo Branch.')
+        string(name: 'APP_REPO_URL', defaultValue: 'default', description: 'Application Repo URL.')
+    }
+
+    stages {
+
+        stage ('Echo the input parameters') {
+            steps {
+                script {
+                    sh """ echo Environment Name ${ENVIRONMENT} """
+                    sh """ echo Application Repo ${APP_REPO_BRANCH} """
+                    sh """ echo Application URL ${APP_REPO_URL}"""
+                }
+            }
+        }
+
+        stage('Checkout Repo') {
+            steps {
+                script {
+                    cleanWs()
+                    sh """ if [ -d "ci-repo" ];then echo "Directory exists";else mkdir ci-repo;fi """
+                    sh """ if [ -d "config-repo" ];then echo "Directory exists";else mkdir config-repo;fi """
+
+                    dir('config-repo') {
+                        gitCheckout(
+                        branch: "${APP_REPO_BRANCH}",
+                        url: "${APP_REPO_URL}"
+                    )
+                    }
+
+                   dir('ci-repo') {
+                       gitCheckout(
+                           branch: 'master',
+                           url: 'https://orahub.oci.oraclecorp.com/oit-entapps-devops/jenkins-pipeline.git'
+                       )
+                   }
+                }
+            }
+        }
+        stage ('Prepare Environment') {
+            steps {
+                script {
+                    sh 'mv ci-repo/* config-repo'
+                    sh 'rm -rf ci-repo'
+                    dir('config-repo') {
+                        env.environment_type="${params.ENVIRONMENT}"
+                        envSet()
+                        setProperty()
+                    }
+                }
+            }
+        }
+
+        stage('Software Compliance Check') {
+            steps {
+                script {
+                    dir('config-repo/ansible') {
+                        def repo_url="${APP_REPO_URL}"
+                        keyName= repo_url.split('/')[3]
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        sh """ ansible-vault view ./../key/masterkey.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        sh """ chmod 400 servkey.pem """
+                        sh 'echo "copying files for deployment" '
+                        sh """ ansible-playbook -i hosts copytemplate.yml -e 'envtype=${ENVIRONMENT} serverHostUrl=${serverHostUrl} appname=${keyName} deploy_type=APP'  """
+                        sh """ ansible-playbook -i hosts compliance_check.yml  """
+                    }
+                    dir('config-repo') {
+                        softwareComplianceCheck()
+                    }
+                }
+            }
+        }
+        stage('Create Jira Story') {
+            when {
+                environment name: 'COMPLIANCESTATUS', value: 'Non-Compliant'
+            }
+            steps {
+                script {
+                    dir('config-repo') {
+                        sh """ python3 manageJiraStory.py ${OS_NAME} ${HOST_NAME} ${OS_VERSION} ${LATEST_OS_VERSION} ${JIRA_SERVER_PASSWORD} ${ENVIRONMENT} > jiraoutput.txt """
+                        createJIRAStory()
+                    }
+                }
+            }
+        }
+
+        stage('Notification Stage') {
+            when {
+                environment name: 'COMPLIANCESTATUS', value: 'Non-Compliant'
+            }
+            steps {
+                script {
+                    dir('config-repo') {
+                         email(
+                        recipientEmail: "${receiver_email_id}"
+                    )
+
+                    }
+                }
+            }
+        }
+
+    }
+}

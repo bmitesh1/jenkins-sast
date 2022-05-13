@@ -1,0 +1,15 @@
+---
+- name: Adding a project hook
+  vars:
+    projectname: "{{ repo_url.split('/')[4].split('.')[0] }}"
+    groupname: "{{ repo_url.split('/')[3] }}"
+  gitlab_hooks:
+    api_url: "{{ apiurl }}"
+    api_token: "LvFsvRArymFHVP-ge7_J"
+    project: "{{ groupname }}/{{ projectname }}"
+    hook_url: "https://{{ hookjenkinsuser }}:1121281ed781984010cbbe6dd7b264aff1@{{ jenkinsurl }}/project/{{ jobName }}/build"
+    state: present
+    push_events_branch_filter: "{{ hookbranchname }}"
+    push_events: yes
+    tag_push_events: no
+    hook_validate_certs: no

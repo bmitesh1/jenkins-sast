@@ -1,0 +1,286 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    options { skipDefaultCheckout() 
+    buildDiscarder(
+        logRotator(
+            // number of build logs to keep
+            numToKeepStr:'5',
+            // history to keep in days
+            daysToKeepStr: '5',
+            // artifacts are kept for days
+            artifactDaysToKeepStr: '5',
+            // number of builds have their artifacts kept
+            artifactNumToKeepStr: '5'
+        )
+    )
+    ansiColor("xterm")
+    }
+    environment
+    {
+        pass = credentials('VNDEVKEY')
+        user = credentials('user')
+        vndevsshpass = credentials('sshvndev')
+        vaultpassword = credentials('vaultkey')
+        ota_user = credentials('ota_user')
+        ota_pass = credentials('ota_pass')
+        oce_user = credentials('oce_user')
+        oce_pass = credentials('oce_pass')
+        ANSIBLE_FORCE_COLOR = true
+
+    }
+    tools { 
+
+
+            maven 'mvn 3.6.2'
+            jdk 'JDK 8u221'
+            nodejs 'NodeJS10.16.0'
+            }
+
+    stages {
+        stage('Checkout Repo') {
+            steps {
+                script
+                {
+                    cleanWs()
+                    sh """ if [ -d "ci-repo" ];then echo "Directory exists";else mkdir ci-repo;fi """
+                    sh """ if [ -d "config-repo" ];then echo "Directory exists";else mkdir config-repo;fi """       
+                    dir('config-repo')
+                    {
+                    checkout([
+                              $class: 'GitSCM', 
+                              branches: [[name: "${env.Application_Repo_Branch}"]], 
+                              doGenerateSubmoduleConfigurations: false, 
+                              extensions: [[$class: 'CleanCheckout']], 
+                              submoduleCfg: [], 
+                              userRemoteConfigs: [[credentialsId: 'e0a06baa-a197-4f27-9210-c4a28d35511a', url: "${env.Application_Repo_Url}"]]
+                            ])
+                    }
+                    dir('ci-repo')
+                    {
+                    checkout([
+                              $class: 'GitSCM', 
+                              branches: [[name: 'master']], 
+                              doGenerateSubmoduleConfigurations: false, 
+                              extensions: [[$class: 'CleanCheckout']], 
+                              submoduleCfg: [], 
+                              userRemoteConfigs: [[credentialsId: 'e0a06baa-a197-4f27-9210-c4a28d35511a', url: 'https://orahub.oci.oraclecorp.com/oit-entapps-devops/jenkins-pipeline.git']]
+                            ])
+                    }
+
+                   
+                }
+            }
+        }
+        stage ('Prepare Environment') {
+            steps {
+                script
+                {
+                    sh 'mv ci-repo/* config-repo'
+                    sh 'rm -rf ci-repo'
+                    dir('config-repo')
+                    {
+             envSet()
+             setProperty()
+                    }
+
+            }
+        }
+        }
+        stage('Create Webhook') {
+            when 
+                {
+                 environment name: 'enable_webhook_pollscm', value: 'Webhook'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo/ansible')
+                    {
+                     sh """ ansible-playbook -i hosts create_git-webhook.yml -e 'jobName="${env.JOB_NAME}" hookbranchname="${env.Application_Repo_Branch}" repo_url="${env.Application_Repo_Url}"' """
+                    }
+                }
+            }
+        }
+
+        stage ('Build') {
+            steps {  
+                script
+                {
+                dir('config-repo')
+                {
+                    if (env.Build_Type == 'Maven')
+                    {
+                      mavenBuild()
+                     }
+                     if (env.Build_Type == 'Npm')
+                     {
+                         npmBuild()
+                     }
+                     if (env.Build_Type == 'Maven-Npm')
+                     {
+                         mavennpmbuild()
+                     }
+            }
+                }
+        }
+        }
+
+        stage('SAST Vulnerability Analysis') {
+           when 
+                {
+                 environment name: 'SAST', value: 'true'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo')
+                    {
+                   println "Proceeding for performing vulnerability scan for code repos"
+                }
+                }
+            }
+        }
+
+
+        stage('SonarQube Report') {
+           when 
+                {
+                 environment name: 'SonarAnalysis', value: 'true'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    sonarAnalysis(
+                        appname: "${sonarqube_application_name}",
+                        project_source_path: "${sonar_project_source_path}",
+                        project_target_path: "${sonar_project_target_path}",
+                        email: "${receiver_email_id}"
+                    )
+                }
+                }
+            }
+        }
+
+        stage('Unit Test Code Coverage Report') {
+           when 
+                {
+                 environment name: 'UnitTestCoverage', value: 'yes'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    unitTest(
+				    jacocoPath: "ViewController/target",
+				    AppCodePath: "ViewController/src/com/otatest",
+                    minLineCoverage: "${env.CoverageValue}"
+				    )
+                }
+                }
+            }
+        }
+       
+        
+        stage('Deployment') {
+            steps {
+                   script {
+                       dir('config-repo/ansible')
+                       {
+                        def repo_url="${env.Application_Repo_Url}"
+                        keyName= repo_url.split('/')[3]
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        sh """ ansible-vault view ./../key/masterkey.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        sh """ chmod 400 servkey.pem """
+                        sh """ mv ./../${app_path} . """
+                        sh 'echo "copying files for deployment" '
+                        sh """ ansible-playbook -i hosts copytemplate.yml -e 'envtype=${env.environment_type} WeblogicSSLType=${WeblogicSSLType} serverHostUrl=${serverHostUrl} appname=${keyName} deploy_type=APP'  """
+                        sh 'echo "Deployment started" --------------------------'
+                        sh """ export ANSIBLE_FORCE_COLOR=true """
+                        if ("${keyName}" == 'recruit-software-dev' || "${keyName}" == 'oit-entapps-devops')
+                        {
+                        sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${ota_user} password=${ota_pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """
+                        }
+                        /*
+                        else if ("${keyName}" == 'oce-martech-dev')
+                        {
+                            sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${oce_user} password=${oce_pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """
+                        }
+                        */
+                        else
+                        {
+                          sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${user} password=${pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """  
+                        }
+
+            }
+                   }
+            }
+        }
+
+
+        stage('Functional Testing') {
+           when 
+                {
+                 environment name: 'FunctionalTesting', value: 'true'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo')
+                    {
+                   println "Proceeding for performing functional testing"
+                }
+                }
+            }
+        }
+        
+        /*
+        stage ('Slack Notification') 
+        {
+            steps
+            {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    slackNotification(
+                        slackChannelName: "#${slack_channel_name}",
+                        slackTokenCredential: "${slack_token_credentialID}"
+                    )
+                }
+                }
+            }
+        }
+        */
+        stage('Email')
+        {
+            steps
+            {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    emailNotification(
+                        recipientEmail: "${receiver_email_id}"
+                    )
+                }
+            }
+            }
+        }
+    }
+
+    post
+    {
+        success
+        {
+            cleanWs()
+        }
+        failure {
+            sh """ if [ -f config-repo/ansible/servkey.pem ];then sudo rm -rf config-repo/ansible/servkey.pem;else echo "pem not present";fi """
+        }
+    }
+
+}

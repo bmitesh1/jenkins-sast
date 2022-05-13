@@ -1,0 +1,12 @@
+---
+- name: Copy hosts file
+  template:
+    src: ./hosts.j2
+    dest: hosts
+    mode : '755'
+
+- name: Copy dump script file
+  template:
+    src: ./dump_artifacts.j2
+    dest: dump_artifacts.yml
+    mode : '755'

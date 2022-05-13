@@ -1,0 +1,8 @@
+---
+- hosts: localhost
+  tasks:
+  - name: Download deploy package
+    get_url:
+      url: "{{ artifact_url }}"
+      dest: .
+      mode: '0755'

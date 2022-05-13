@@ -1,0 +1,26 @@
+---
+- name: Copy hosts file
+  template:
+    src: ./hosts.j2
+    dest: hosts
+    mode : '755'
+- name: Copy compliance script
+  template:
+    src: ./compliance_check.j2
+    dest: compliance_check.yml
+    mode : '755'
+- name: Copy deploy script
+  template:
+    src: ./deploy_main.j2
+    dest: deploy_main.yml
+    mode : '755'
+- name: Copy deploy script
+  template:
+    src: ./deploy_version.j2
+    dest: deploy_version.yml
+    mode : '755'
+- name: Copy deploy script db
+  template:
+    src: ./database_main.j2
+    dest: database_main.yml
+    mode : '755'

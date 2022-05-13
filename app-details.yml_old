@@ -1,0 +1,27 @@
+DEV:
+ ApplicationName: OTATest#1.0.0
+ app_Name: OTATest.ear
+ app_Path: Ear/target/OTATest.ear
+ application_ssh_config_name: OTADev
+ artifactory_repo_name: entapps-maven-local
+ receiver_mail_id: avinash.ad.kumar@oracle.com
+ sender_mail_id: no-reply@oracle.com
+
+STAGE:
+ ApplicationName: sbat
+ app_Name: sbat.ear
+ app_Path: target/sbat.ear
+ application_ssh_config_name: VN-Stage
+ artifactory_repo_name: valuenavigator-dev-local
+ receiver_mail_id: avinash.ad.kumar@oracle.com
+ sender_mail_id: no-reply@oracle.com
+
+PROD:
+ ApplicationName: OTATest#1.0.0
+ app_Name: OTATest.ear
+ app_Path: Ear/target/OTATest.ear
+ application_ssh_config_name: OTADev
+ artifactory_repo_name: entapps-maven-local
+ receiver_mail_id: avinash.ad.kumar@oracle.com
+ sender_mail_id: no-reply@oracle.com
+

@@ -1,0 +1,224 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    environment {
+        RollbackValue = "${params.Rollback_option}"
+        CMValue = "${params.Change_Management}"
+        vaultpassword = credentials('vaultkey')
+        pass = credentials('VNDEVKEY')
+        user = credentials('user')
+        oce_user = credentials('oce_user')
+        oce_pass = credentials('oce_pass')
+        ota_user = credentials('ota_user')
+        ota_pass = credentials('ota_pass')
+        ANSIBLE_FORCE_COLOR = true
+
+    }
+    options { skipDefaultCheckout() 
+    buildDiscarder(
+        logRotator(
+            // number of build logs to keep
+            numToKeepStr:'5',
+            // history to keep in days
+            daysToKeepStr: '5',
+            // artifacts are kept for days
+            artifactDaysToKeepStr: '5',
+            // number of builds have their artifacts kept
+            artifactNumToKeepStr: '5'
+        )
+    )
+    ansiColor("xterm")
+    }
+    stages {
+       stage('Checkout Repo') {
+            steps {
+                script
+                {
+                    cleanWs()
+                    sh """ if [ -d "ci-repo" ];then echo "Directory exists";else mkdir ci-repo;fi """
+                    sh """ if [ -d "config-repo" ];then echo "Directory exists";else mkdir config-repo;fi """    
+                    dir('config-repo')
+                    {
+                        gitCheckout(
+                        branch: "${env.Application_Repo_Branch}",
+                        url: "${env.Application_Repo_Url}"
+                    )
+                    }
+                   dir('ci-repo')
+                   {
+
+                   gitCheckout(
+                        branch: 'master',
+                        url: 'https://orahub.oci.oraclecorp.com/oit-entapps-devops/jenkins-pipeline.git'
+                    )
+                   }
+
+
+                   
+                }
+            }
+        }
+
+        stage ('Prepare Environment') {
+            steps {
+                script
+                {
+                    sh 'mv ci-repo/* config-repo'
+                    sh 'rm -rf ci-repo'
+                    dir('config-repo')
+                    {
+             envSet()
+             setProperty()
+                    }
+
+                    }
+
+            }
+        }
+
+        stage('Get Artifacts from Repository') {
+            steps {
+                script
+                {
+                    dir('config-repo/ansible')
+                    {
+                    env.tagNum = "${params.Artifact_Version_Number}"
+                    def appname_repo = sh (script: "echo ${app_name}|cut -d '.' -f 1", returnStdout: true).trim()
+                    env.appnameRepo = appname_repo
+                    sh """ ansible-playbook -i hosts download-package.yml -e 'artifactoryUrl=${artifactoryUrl} artifactory_repo_name=${artifactory_repo_name} appnameRepo=${appnameRepo} tagNum=${tagNum} app_name=${app_name}' """
+                }
+            }
+        }
+        }
+        /*
+        stage('ApprovalEmail') {                   
+            steps {  
+                script { 
+                    approvalEmail(
+                        recipientEmail: "${receiver_email_id}",
+                        senderEmail: "${sender_email_id}"
+                    )
+                }
+}
+        }
+        */
+
+        stage ('Change Management Approval') {
+            when 
+                {
+                 environment name: 'CMValue', value: 'true'
+                    }
+            steps {
+                script
+                {
+                getJIRATicketStatus(
+                    JIRA_ID: "${params.JIRA_ID}"
+                )
+                println ticketStatus
+
+            }
+            }
+        }
+
+        stage('Deployment') {
+            steps {
+                   script {
+
+                   dir('config-repo/ansible')
+                       {
+                        def repo_url="${env.Application_Repo_Url}"
+                        keyName= repo_url.split('/')[3]
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        sh """ ansible-vault view ./../key/masterkey.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        sh """ chmod 400 servkey.pem """
+                        sh """ if [ -f ${app_name} ];then echo "Package already present"; else mv ./../${app_path} . ;fi """
+                        sh 'echo "copying files for deployment" '
+                        sh """ ansible-playbook -i hosts copytemplate.yml -e 'envtype=${env.environment_type} WeblogicSSLType=${WeblogicSSLType} serverHostUrl=${serverHostUrl} appname=${keyName} deploy_type=APP'  """
+                        sh 'echo "Deployment started" --------------------------'
+                        if ("${keyName}" == 'recruit-software-dev' || "${keyName}" == 'oit-entapps-devops')
+                        {
+                        sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${ota_user} password=${ota_pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """
+                        }
+                        /*
+                        else if ("${keyName}" == 'oce-martech-dev')
+                        {
+                            sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${oce_user} password=${oce_pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """
+                        }
+                        */
+                        else
+                        {
+                          sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${user} password=${pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """  
+                        }
+
+                        //def deploystatus = sh (script: "cat status.txt", returnStdout: true).trim()
+                        //env.appdeploystatus = deploystatus
+            }
+
+                   }
+            }
+        }
+
+        stage('Email')
+        {
+            steps
+            {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    emailNotification(
+                        recipientEmail: "${receiver_email_id}"
+                    )
+                }
+            }
+            }
+        }
+/*
+        stage('Rollback Deployment') {
+             when 
+                {
+                 environment name: 'appdeploystatus', value: 'failed'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo/ansible')
+                    {
+                    println "============================Proceeding for Rollback deployment=================================="
+                    env.prevtagNum = "${params.Rollback_Artifact_Version_Number}"
+                    def appname_repo = sh (script: "echo ${app_name}|cut -d '.' -f 1", returnStdout: true).trim()
+                    env.appnameRepo = appname_repo
+                    sh """ ansible-playbook -i hosts download-package.yml -e 'artifactory_repo_name=${artifactory_repo_name} appnameRepo=${appnameRepo} tagNum=${prevtagNum} app_name=${app_name}' """
+                        def repo_url="${env.Application_Repo_Url}"
+                        keyName= repo_url.split('/')[3]
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        sh """ ansible-vault view ./../key/masterkey.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        //sh """ ansible-vault view ./../key/"${keyName}".pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        sh """ chmod 400 servkey.pem """
+                        //sh """ mv ./../${app_path} . """
+                        sh 'echo "copying files for deployment" '
+                        sh """ ansible-playbook -i hosts copytemplate.yml -e 'envtype="${env.environment_type}" WeblogicSSLType=${WeblogicSSLType}  serverHostUrl=${serverHostUrl} appname=${keyName}'  """
+                        sh """ echo "==================== Rollback Deployment started for "${env.environment_type}" =============================" """
+                        sh """ ansible-playbook -i hosts deploy_main.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype="${env.environment_type}" username=${user} password=${pass} deploymentName=${ApplicationName} deploymentFile=${app_name} serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """
+
+
+                }
+                }
+            }
+        }
+        */
+
+    }
+    post
+    {
+        success
+        {
+            cleanWs()
+        }
+        failure {
+            sh """ if [ -f config-repo/ansible/servkey.pem ];then sudo rm -rf config-repo/ansible/servkey.pem;else echo "pem not present";fi """
+        }
+
+
+    }
+}

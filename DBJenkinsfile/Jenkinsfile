@@ -1,0 +1,64 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    options { skipDefaultCheckout() }
+stages {
+        stage('Checkout Repo') {
+            steps {
+                script
+                {
+                    cleanWs()
+  
+                        gitCheckout(
+                        branch: "${env.DBApplication_Repo_Branch}",
+                        url: "${env.DBApplication_Repo_Url}"
+                    )
+                    }
+                }
+
+                   
+                }
+
+                stage('Prepare environment') {
+            steps {
+                script
+                {
+                   setProperty()
+                   //println "${receiver_email_id}"
+                    }
+                }
+
+                   
+                }
+stage('Run SQL script') {
+            steps {
+                script
+                {
+                
+                 
+                  sqlDeploy(
+                        oracle_home_path: "${env.ora_path}",
+                        db_config_name: "${env.db_ssh_config_name}",
+                        order_file_name: "${env.orderfilename}",
+                        db_environment_name: "${env.dbEnv}"
+                    )
+  
+                }
+            }
+        }
+        stage('Email')
+        {
+            steps
+            {
+                script
+                {
+                    emailNotification(
+                        recipientEmail: "${receiver_email_id}"
+                    )
+
+                }
+            }
+            }
+
+}
+}

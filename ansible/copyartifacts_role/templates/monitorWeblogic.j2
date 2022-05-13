@@ -1,0 +1,73 @@
+import sys
+import os
+from java.lang import System
+import getopt
+import base64
+
+
+
+########################################################################
+# Function to connect to WebLogic Domain.
+########################################################################
+
+def connectToDomain():
+    try:
+        connect("{{ username }}", "{{ password }}", "t3://{{ serverHostUrl }}:{{ portnumber }}", adminServerName='AdminServer')
+        print 'Successfully connected to the domain\n'
+    except:
+        print 'The domain is unreacheable. Please try again\n'
+        exit()
+
+########################################################################
+# Function to check WebLogic Server Status.
+########################################################################
+
+def serverStatus(ServerName):
+    try:
+        cd('ServerRuntimes/'+ServerName);
+        serverState = cmo.getState()
+        serverHealth = cmo.getHealthState()
+        serverHealth=str(serverHealth).split(',')[1].split(':')[1];
+
+        if serverState == "RUNNING":
+            print 'Server ' + ServerName + ' is :' + serverState + '' + ' and Server Heath State :', serverHealth;
+        elif serverState == "STARTING":
+            print 'Server ' + ServerName + ' is :' + serverState + '' + ' and Server Heath State :', serverHealth;
+        elif serverState == "UNKNOWN":
+            print 'Server ' + ServerName + ' is :' + serverState + '' + ' and Server Heath State :', serverHealth;
+        else:
+            print 'Server ' + ServerName + ' is :' + serverState + '' + ' and Server Heath State :', serverHealth;
+        return serverState
+    except:
+        print 'Not able to get the' + serverState +'server status. Please try again\n'
+
+########################################################################
+# Lifecycle method
+########################################################################
+
+def lifecycleMain():
+    try:
+
+        cd('/Servers')
+        allServers=ls('/Servers', returnMap='true')
+        domainRuntime()
+        print "********************************************************************************"
+        for p_server in allServers:
+            serverStatus(p_server);
+        print "********************************************************************************"
+    except:
+        print 'Error during lifecycle operation of ' +ServerName+ '\n'
+        exit();
+
+########################################################################
+# Program Execution Starts Here
+########################################################################
+
+if __name__=='__main__' or __name__== 'main':
+
+  connectToDomain();
+  lifecycleMain();
+  print ""
+  disconnect();
+  exit();
+  print "************************* Health Status Check Completed *******************************************************"

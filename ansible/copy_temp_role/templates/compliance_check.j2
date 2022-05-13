@@ -1,0 +1,11 @@
+---
+- name: Software Compliance Check
+  hosts: {{ envtype }}
+  gather_facts: false
+  # no_log: true
+
+  #vars:
+  #  ansible_python_interpreter: /usr/bin/python3
+  #become: yes
+  roles:
+    - tech_debt_management

@@ -1,0 +1,45 @@
+#!/bin/bash
+Source=/home/appjenk/SQLFiles
+orderFileName=$Source/{{ order_file_name }}
+echo "Custom Order File is used: " $orderFileName
+
+echo "Order File Name: "$orderFileName
+
+if [[ ! -f "$orderFileName" ]]
+then
+    echo "Order File doesn't exists, please add the order file in the repo or provide correct Orderfile."
+    exit 1
+fi
+
+line=$(grep -n "^\[" $orderFileName|awk -F ':' ' { print $1 }')
+# echo $line
+arr=($line)
+no_of_lines_in_file=$(($(cat $orderFileName|wc -l)+2))
+arr=( "${arr[@]}" $no_of_lines_in_file )
+index=0
+for i in "${arr[@]}"
+do
+     if [ $i == $no_of_lines_in_file ]
+     then
+        break
+     fi
+     schema_name=$(awk -v a="${arr[index]}" 'NR == a' $orderFileName | sed 's/\[//g' | sed 's/\]//g')
+     sql_list=$(awk -v a="${arr[index]}" -v b="${arr[index+1]}" 'NR > a  && NR < b ' $orderFileName)
+     sqlfile_arr=($sql_list)
+     echo "$sqlfile_arr"
+     for sqlFile in "${!sqlfile_arr[@]}"
+     do
+        echo "${sqlfile_arr[$sqlFile]}"
+	    sqlFilePath=/home/appjenk/SQLFiles/"${sqlfile_arr[$sqlFile]}"
+        echo -e "\n################### Deployment Started for ${sqlfile_arr[$sqlFile]} in $schema_name #####################\n\n"
+        if [ {{ database_env_name }} == null ]
+        then
+        schemaName="${schema_name}"
+        else
+        schemaName="{{ database_env_name }}_${schema_name}"
+        fi
+        echo "Executing Script for: " $schemaName
+        {{ orahome }}/bin/sqlplus /@$schemaName @"$sqlFilePath"
+     done
+    index=$(($index + 1))
+done

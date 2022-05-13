@@ -1,0 +1,318 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    environment {
+        functionalTesting = "${params.Functional_Testing}"
+        vaultpassword = credentials('vaultkey')
+        pass = credentials('VNDEVKEY')
+        user = credentials('user')
+        ota_user = credentials('ota_user')
+        ota_pass = credentials('ota_pass')
+        oce_user = credentials('oce_user')
+        oce_pass = credentials('oce_pass')
+        entappspass = credentials('entappspass')
+        ast_pass = credentials('astpass')
+        ast_user = credentials('astuser')
+        aststage_pass = credentials('aststage_pass')
+
+    }
+    options { skipDefaultCheckout() 
+    buildDiscarder(
+        logRotator(
+            // number of build logs to keep
+            numToKeepStr:'5',
+            // history to keep in days
+            daysToKeepStr: '5',
+            // artifacts are kept for days
+            artifactDaysToKeepStr: '5',
+            // number of builds have their artifacts kept
+            artifactNumToKeepStr: '5'
+        )
+    )
+    }
+    tools { 
+
+
+            maven 'mvn 3.6.2'
+            jdk 'JDK 8u221'
+            nodejs 'NodeJS10.16.0'
+            }
+
+    stages {
+        stage('Checkout Repo') {
+            steps {
+                script
+                {
+                    cleanWs()
+                    sh """ if [ -d "ci-repo" ];then echo "Directory exists";else mkdir ci-repo;fi """
+                    sh """ if [ -d "config-repo" ];then echo "Directory exists";else mkdir config-repo;fi """
+                    dir('ci-repo')
+                   {
+
+                   gitCheckout(
+                        branch: 'astmaster',
+                        url: 'https://orahub.oci.oraclecorp.com/oit-entapps-devops/jenkins-pipeline.git'
+                    )
+                   }
+                    dir('config-repo')
+                    {
+                        sh """ git clone --quiet --depth 1 "${env.Application_Repo_Url}" --branch "${env.Application_Repo_Branch}" """
+                        sh """ mv oci-marketplace/* . """
+                        sh """ rm -rf config-repo/oci-marketplace """
+                        /*
+                        gitCheckout(
+                        branch: "${env.Application_Repo_Branch}",
+                        url: "${env.Application_Repo_Url}"
+                    ) */
+                    }
+                   
+
+                   
+                }
+            }
+        }
+        stage ('Prepare Environment') {
+            steps {
+                script
+                {
+                    sh 'mv ci-repo/* config-repo'
+                    sh 'rm -rf ci-repo'
+                    dir('config-repo')
+                    {
+             envSet()
+             def majorversion = sh (script: "grep majorversion ocibuild.conf|head -1 | cut -d ':' -f 2 |tr -d ' '", returnStdout: true).trim()
+             env.major_version = majorversion
+             def minorversion = sh (script: "grep minorversion ocibuild.conf|head -1 | cut -d ':' -f 2 |tr -d ' '", returnStdout: true).trim()
+             env.minor_version = minorversion
+             env.short_release_version="${env.major_version}.${env.minor_version}"
+             print "${env.short_release_version}"
+             env.jobname = "${env.JOB_NAME}".split('/')[2]
+             if ("${env.jobname}" == 'adminapp')
+             {
+                 sh """ mv adminapp.yml app-details.yml """
+             }
+              if ("${env.jobname}" == 'partnerrest')
+             {
+                 sh """ mv partnerrest.yml app-details.yml """
+             }
+              if ("${env.jobname}" == 'partnerportal')
+             {
+                 sh """ mv partnerportal.yml app-details.yml """
+             }
+             if ("${env.jobname}" == 'marketplace')
+             {
+                 sh """ mv marketplace.yml app-details.yml """
+             }
+             if ("${env.jobname}" == 'marketplacerest')
+             {
+                 sh """ mv marketplacerest.yml app-details.yml """
+             }
+               if ("${env.jobname}" == 'amsrest')
+             {
+                 sh """ mv amsrest.yml app-details.yml """
+             }
+                if ("${env.jobname}" == 'messageprocessor')
+             {
+                 sh """ mv messageprocessor.yml app-details.yml """
+             }
+
+             setProperty()
+                    }
+
+            }
+        }
+        }
+
+        stage ('Build') {
+            steps {  
+                script
+                {
+                dir('config-repo')
+                {
+                    if (env.Build_Type == 'Maven')
+                    {
+                      mavenBuild()
+                     }
+                     if (env.Build_Type == 'Npm')
+                     {
+                         npmBuild()
+                     }
+                    if (env.Build_Type == 'Maven-Npm')
+                     {
+                         mavennpmbuild()
+                     }
+                     if (env.Build_Type == 'Maven-Sonar')
+                     {
+                         mavenSonar()
+                     }
+                     if (env.Build_Type == 'Ant')
+                     {
+                        withAnt(installation: 'ASTANT', jdk: 'JDK 8u221') {
+                          if ("${env.jobname}" == 'adminapp')
+                              {
+                           sh """ cd appstore/adminapp && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean ear """
+                               }
+                          if ("${env.jobname}" == 'partnerportal')
+                              {
+                           sh """ cd appstore/partnerportal && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean ear """
+                               }
+                          if ("${env.jobname}" == 'marketplace')
+                              {
+                           sh """ cd appstore/marketplace && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean ear """
+                               }
+                          if ("${env.jobname}" == 'marketplacerest')
+                              {
+                           sh """ cd appstore/marketplacerest && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean ear """
+                               }
+                          if ("${env.jobname}" == 'messageprocessor')
+                              {
+                           sh """ cd appstore/messageprocessor && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean ear """
+                               }
+                          if ("${env.jobname}" == 'partnerrest')
+                              {
+                           sh """ cd appstore/partnerrest && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean ear """
+                               }
+                          if ("${env.jobname}" == 'amsrest')
+                              {
+                           sh """ cd appstore/activityrest && ant -DAPP_VERSION_STRING="${env.short_release_version}.${env.BUILD_NUMBER}" -Dbuild.number="${env.short_release_version}.${env.BUILD_NUMBER}" clean war """
+                               }
+                     }
+
+            }
+
+            }
+                }
+        }
+        }
+        stage('Create Tag on the latest commitID') {
+            steps
+            {
+                script
+                {
+                    if ("${env.Application_Repo_Url}".contains('orahub'))
+                    {
+                    createTag()
+                    }
+                    if ("${env.Application_Repo_Url}".contains('alm'))
+                    {
+                      createTagALM(
+                          entpass: "${entappspass}"
+                      )
+                    }
+                }
+            }
+        }
+        /*
+        stage('Artifactory Upload') {
+            steps {
+                script
+                {
+                    env.tagNum = "${params.tag_number}"
+                    def appname_repo = sh (script: "echo ${app_name}|cut -d '.' -f 1", returnStdout: true).trim()
+                    def str = "${app_path}"
+                    int indexPos = str.lastIndexOf("/")
+                    def app_Path_Name = str.substring(0,indexPos)
+                    //def app_short_name = str.split('/')[1]
+                    def app_short = str.split("/")[-1]
+                    def file_type = app_short.tokenize(".")[1]
+                    def app_short_name = app_short.tokenize(".")[0]
+                    env.appnameRepo = appname_repo
+                    dir('config-repo')
+                    {
+                uploadArtefact(
+                 earPath: "${app_Path_Name}/${app_short_name}${env.short_release_version}.${env.BUILD_NUMBER}.${file_type}",
+                 targetFolder: "${artifactory_repo_name}/release/${env.appnameRepo}-${env.tagNum}/"
+                ) 
+
+                }
+            }
+        }
+        }
+        stage('ApprovalEmail') {                   
+            steps {  
+                script { 
+                    dir('config-repo')
+                    {
+                    approvalEmail(
+                        recipientEmail: "${receiver_email_id}",
+                        senderEmail: "${sender_email_id}"
+                    )
+    }
+                }
+}
+        }
+        */
+        stage('Deployment') {
+            steps {
+                   script {
+                       dir('config-repo/ansible')
+                       {
+                        def repo_url="${env.Application_Repo_Url}"
+                        keyName= repo_url.split('/')[3]
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        sh """ ansible-vault view ./../key/masterkey.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        sh """ chmod 400 servkey.pem """
+                        def str = "${app_path}"
+                        int indexPos = str.lastIndexOf("/")
+                        def app_Path_Name = str.substring(0,indexPos)
+                        //def app_short_name = str.split('/')[1]
+                        def app_short = str.split("/")[-1]
+                        def file_type = app_short.tokenize(".")[1]
+                        def app_short_name = app_short.tokenize(".")[0]
+                        println ".${file_type}"
+                        println "${app_Path_Name}"
+                        sh """ mv ./../"${app_Path_Name}/${app_short_name}${env.short_release_version}.${env.BUILD_NUMBER}.${file_type}" . """
+                        sh 'echo "copying files for deployment" '
+                        sh """ ansible-playbook -i hosts copytemplate.yml -e 'envtype=${env.environment_type} WeblogicSSLType=${WeblogicSSLType} serverHostUrl=${serverHostUrl} appname=${keyName} deploy_type=APP'  """
+                        sh 'echo "Deployment started" --------------------------'
+                        sh """ ansible-playbook -i hosts deploy_version.yml -e 'WeblogicSSLType=${WeblogicSSLType} envtype=${env.environment_type} username=${ast_user} password=${aststage_pass} deploymentName=${ApplicationName} deploymentFile="${app_short_name}${env.short_release_version}.${env.BUILD_NUMBER}.${file_type}" serverHostUrl=${serverHostUrl} portnumber=${portnumber} deploymentTarget=${deploymentTarget} wlst_location_home=${wlst_location_home}' """  
+                        }
+                   }
+            }
+        }
+
+       
+        stage('Functional Testing') {
+           when 
+                {
+                 environment name: 'functionalTesting', value: 'true'
+                    }
+            steps {
+                script
+                {
+                    dir('config-repo')
+                    {
+                   println "Proceeding for Functional Testing"
+                }
+                }
+            }
+        }
+         stage('Email')
+        {
+            steps
+            {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    emailNotification(
+                        recipientEmail: "${receiver_email_id}"
+                    )
+                }
+            }
+            }
+        }
+    }
+
+    post
+    {
+        success
+        {
+            cleanWs()
+        }
+        failure {
+            sh """ if [ -f config-repo/ansible/servkey.pem ];then sudo rm -rf config-repo/ansible/servkey.pem;else echo "pem not present";fi """
+        }
+    }
+
+}

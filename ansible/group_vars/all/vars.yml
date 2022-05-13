@@ -1,0 +1,10 @@
+appfilename: "OTATest.ear"
+appname: "OTATest#1.0.0"
+env_name: "DEV"
+server_name: "git00002955.a1-prodapp-phx1-a-i-vcn2.oraclecorp.com"
+port_number: 7001
+user_name: "recruiting"
+password: "cmVjcnVpdGluZzR1cw=="
+wlst_location_home: "/app/oracle/ofm/12214/wlserver/server"
+app_deployment_target: "MS1,MS2"
+apppathname: "/home/appjenk/devops/repo"

@@ -1,0 +1,12 @@
+---
+- name: Copy deploy package
+  copy:
+    src: "{{ deploymentFile }}"
+    dest: "{{ deployDirectory }}"
+    remote_src: no
+    mode: 0755
+- name: Extract contents
+  unarchive:
+    src: "{{ deployDirectory }}/{{ deploymentFile }}"
+    dest: "{{ deployDirectory }}"
+    remote_src: yes

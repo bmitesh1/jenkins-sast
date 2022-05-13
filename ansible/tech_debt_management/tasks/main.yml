@@ -1,0 +1,32 @@
+---
+- name: "Copy scripts and configuration files:"
+  template:
+      src: "{{item}}"
+      dest: "{{deployDirectory}}"
+  with_items:
+      - complianceCheck.py
+      - version.config
+
+- name: "Execute the Compliance Check Script:"
+  shell: python complianceCheck.py
+  register: out
+  args:
+    chdir: "{{deployDirectory}}"
+
+# - debug:
+#     msg: "{{out.stdout}}"
+
+- name: "Redirect the Compliance Check Script Output:"
+  shell: |
+      tee ./../status.txt > /dev/null <<EOT
+          {{ out.stdout }}
+      EOT
+  delegate_to: localhost
+
+- name: "Delete scripts and configuration files:"
+  file:
+      path: "{{deployDirectory}}/{{item}}"
+      state: absent
+  with_items:
+      - complianceCheck.py
+      - version.config

@@ -1,0 +1,3 @@
+---
+#deployDirectory: '/u02/econtracting/xmlpserver'
+#deploymentFile: 'ePACT.zip'

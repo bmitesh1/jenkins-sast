@@ -1,0 +1,7 @@
+---
+- name: Deploy Output
+  shell: hostname -I
+  register: ip
+- debug:
+    msg: "{{ ip.stdout }}"
+

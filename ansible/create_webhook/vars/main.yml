@@ -1,0 +1,5 @@
+---
+apiurl: 'https://orahub.oci.oraclecorp.com'
+jenkinsurl: 'cihub.oci.oraclecorp.com/oit/bds'
+hookjenkinsuser: 'entapps-devops_in%40oracle.com'
+#hookbranchname: 'develop'

@@ -1,0 +1,129 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    options { skipDefaultCheckout() 
+    buildDiscarder(
+        logRotator(
+            // number of build logs to keep
+            numToKeepStr:'5',
+            // history to keep in days
+            daysToKeepStr: '5',
+            // artifacts are kept for days
+            artifactDaysToKeepStr: '5',
+            // number of builds have their artifacts kept
+            artifactNumToKeepStr: '5'
+        )
+    )
+    ansiColor("xterm")
+    }
+    environment
+    {
+        ANSIBLE_FORCE_COLOR = true
+        pass = credentials('VNDEVKEY')
+        user = credentials('user')
+        vndevsshpass = credentials('sshvndev')
+        vaultpassword = credentials('vaultkey')
+        ota_user = credentials('ota_user')
+        ota_pass = credentials('ota_pass')
+
+    }
+
+stages {
+        stage('Checkout Repo') {
+            steps {
+                script
+                {
+                    cleanWs()
+                    sh """ if [ -d "ci-repo" ];then echo "Directory exists";else mkdir ci-repo;fi """
+                    sh """ if [ -d "config-repo" ];then echo "Directory exists";else mkdir config-repo;fi """  
+                    dir('config-repo')
+                    {
+                        gitCheckout(
+                        branch: "${env.DBApplication_Repo_Branch}",
+                        url: "${env.DBApplication_Repo_Url}"
+                    )
+                    }
+                   dir('ci-repo')
+                   {
+
+                   gitCheckout(
+                        branch: 'master',
+                        url: 'https://orahub.oci.oraclecorp.com/oit-entapps-devops/jenkins-pipeline.git'
+                    )
+
+                   }
+                }
+
+                   
+                }
+}
+
+
+                stage('Prepare environment') {
+            steps {
+                script
+                {
+                   sh 'mv ci-repo/* config-repo'
+                   sh 'rm -rf ci-repo'
+                    dir('config-repo')
+                    {
+
+                   setDBProperty()
+                   //println "${receiver_email_id}"
+                    }
+                }
+
+                   
+                }
+}
+stage('Sql deployment') {
+            steps {
+                script
+                {
+                dir('config-repo/ansible')
+                       {
+                        def repo_url="${env.DBApplication_Repo_Url}"
+                        keyName= repo_url.split('/')[3]
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        sh """ ansible-vault view ./../key/masterkey.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        sh """ chmod 400 servkey.pem """
+                        //sh """ mv ./../${app_path} . """
+                        sh 'echo "copying template files for deployment" '
+                        sh """ ansible-playbook -i hosts copytemplate.yml -e 'appname=${keyName} envtype=${env.environment_type} serverHostUrl=${serverHostUrl} deploy_type=DB'  """
+                        sh 'echo "SQL Deployment started" --------------------------'
+                        sh """ ansible-playbook -i hosts database_main.yml --extra-vars='orahome=${oraclehome} order_file_name=${env.orderfilename} database_env_name=${database_env_name}'"""
+
+                 
+  
+                }
+            }
+        }
+        }
+        stage('Email')
+        {
+            steps
+            {
+                script
+                {
+                    dir('config-repo')
+                    {
+                    emailNotification(
+                        recipientEmail: "${receiver_email_id}"
+                    )
+
+                }
+            }
+            }
+}
+}
+post
+{
+    failure
+    {
+       emailNotification(
+                        recipientEmail: "${receiver_email_id}"
+                    ) 
+    }
+}
+
+}

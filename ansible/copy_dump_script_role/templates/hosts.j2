@@ -1,0 +1,8 @@
+{% if envtype == 'DEV' and appname == 'oit-valuenavigator-dev' %}
+[{{ envtype }}]
+{{ serverHostUrl }} ansible_connection=ssh ansible_ssh_user=appjenk ansible_ssh_password=He1pdesk@12345
+{% else %}
+[{{ envtype }}]
+{{ serverHostUrl }} ansible_connection=ssh ansible_ssh_user=appjenk ansible_ssh_private_key_file=./servkey.pem
+{% endif %}
+

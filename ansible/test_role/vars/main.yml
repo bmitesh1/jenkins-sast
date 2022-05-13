@@ -1,0 +1,9 @@
+---
+username: 'recruiting'
+password: 'recruiting4us'
+adminUrl: 't3://git00002955.a1-prodapp-phx1-a-i-vcn2.oraclecorp.com:7001'
+deploymentName: 'OTATest#1.0.0'
+deploymentFile: 'OTATest.ear'
+deploymentTarget: 'MS1,MS2'
+deployDirectory: '/home/appjenk/devops/repo'
+wlst_location_home: '/app/oracle/ofm/12214/wlserver/server'

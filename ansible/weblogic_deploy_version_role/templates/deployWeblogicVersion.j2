@@ -1,0 +1,138 @@
+import re
+import os
+import sys
+from time import localtime, strftime
+
+
+def connectToDomain():
+    try:
+        connect("{{ username }}", "{{ password }}", "{{ WeblogicSSLType }}://{{ serverHostUrl }}:{{ portnumber }}", adminServerName='AdminServer')
+        print('Successfully connected to the domain')
+    except:
+        print('The domain is unreacheable. Please try again')
+        exit()
+
+
+def appstatus(deploymentName, deploymentTarget):
+    try:
+        domainRuntime()
+        cd('domainRuntime:/AppRuntimeStateRuntime/AppRuntimeStateRuntime')
+        currentState = cmo.getCurrentState(deploymentName, deploymentTarget)
+        return currentState
+    except:
+        print('Error in getting current status of ' + deploymentName)
+        exit()
+
+
+def undeployApplication(deploymentName, deploymentTarget):
+    try:
+        print('stopping and undeploying ..' + deploymentName)
+        stopApplication(deploymentName, targets=deploymentTarget)
+        undeploy(deploymentName, targets=deploymentTarget)
+    except:
+        print('Error during the stop and undeployment of ' + deploymentName)
+        exit()
+
+
+def deployApplication(deploymentName, deploymentTarget, deploymentFile, AppVersion):
+    try:
+        print('Deploying the application ' + deploymentName)
+        deploy(deploymentName, deploymentFile, targets=deploymentTarget, remote='true', upload='true' ,timeout = 1200000,versionIdentifier=AppVersion)
+        startApplication(deploymentName, versionIdentifier=AppVersion)
+        curState=appstatus(deploymentName, deploymentTarget)
+        print "%s: %s\n" % (deploymentName, curState)
+    except:
+        print('Error during the deployment of ' + deploymentName)
+        exit()
+
+def RedeployApplication(deploymentName, deploymentTarget, deploymentFile, AppVersion):
+    try:
+        print('Deploying the application ' + deploymentName)
+        deploy(deploymentName, deploymentFile, targets=deploymentTarget, remote='true', upload='true' , retireGracefully = 'true', timeout = 600000,retireTimeout = '30',versionIdentifier=AppVersion)
+        startApplication(deploymentName, versionIdentifier=AppVersion)
+        curState=appstatus(deploymentName, deploymentTarget)
+        print "%s: %s\n" % (deploymentName, curState)
+    except:
+        print('Error during the deployment of ' + deploymentName)
+        exit()
+
+
+def deployUndeployMain(deploymentName, deploymentTarget, deploymentFile, AppVersion):
+        cd('AppDeployments')
+        appList = ls(returnMap='true')
+        appList = map(str,appList)
+        appList = list(appList)
+        print(appList)
+        str_count=[]
+        for i in range(len(appList)):
+           if (appList[i].startswith(deploymentName)):
+              str_count.append("Found")       
+        print(len(str_count))
+
+        if (len(str_count) >= 1):
+         deplymentsList=cmo.getAppDeployments()
+         for app in deplymentsList:
+             appname = app.getName()
+             if (appname.startswith(deploymentName)):
+               print('Application ' + deploymentName + ' Found on server ' + deploymentTarget + ', redeploying application..')
+               domainConfig()
+               #cd('AppDeployments')
+               #ls()
+               print(appname)
+               appflag=0
+               cd('/AppDeployments/'+appname)
+               targets = cmo.getTargets()
+               for target in targets:                  
+                 cur_status = appstatus(appname, target.getName())
+                 if cur_status == 'STATE_RETIRED':
+                    appflag=1
+                 elif cur_status == 'STATE_ACTIVE':
+                    appflag=2
+                 else:
+                    appflag=3
+               if appflag == 1 :
+                  print(cur_status)
+                  print("Application is in Retired state. So,undeploying the application")
+                  undeployApplication(appname, deploymentTarget)
+               elif appflag== 2:
+                  print(cur_status)
+                  print("Redeploying Application with the existing active state")
+                  RedeployApplication(deploymentName, deploymentTarget, deploymentFile, AppVersion)
+               else:
+                  print(cur_status)
+                  print("Application not found in active or retired state")
+                  undeployApplication(appname, deploymentTarget)
+                    
+        else:
+         print("No Application Found on Server. So Proceeding for 1st time deployment")
+         deployApplication(deploymentName, deploymentTarget, deploymentFile, AppVersion)
+
+if __name__ == '__main__' or __name__ == 'main':
+   try: 
+    print('==============================================================================')
+    print('Connecting to Admin Server...')
+    print('==============================================================================')
+    connectToDomain()
+    print ('Checking for active edit session: ')
+    cfgmgr = getConfigManager()
+    user = cfgmgr.getCurrentEditor()
+    print user
+    if user is not None:
+     print "\033[31m%s: Current Edit Session Detected On Admin Console \033[39m\n\n" % (serverName)
+     edit()
+     startEdit()
+     stopEdit(defaultAnswer='y')
+     #activate(200000, block='true')
+   except:
+     cancelEdit(defaultAnswer='y')
+   print('==============================================================================')
+   print('Starting Deployment...')
+   print('==============================================================================')
+   deploymentName="{{ deploymentName }}"
+   deployUndeployMain(deploymentName, "{{ deploymentTarget }}", "{{ deployDirectory }}/{{ deploymentName }}/{{ deploymentFile }}", "{{ AppVersion.stdout }}")
+   print('==============================================================================')
+   print('Execution completed...')
+   print('==============================================================================')
+    
+   disconnect()
+   exit()

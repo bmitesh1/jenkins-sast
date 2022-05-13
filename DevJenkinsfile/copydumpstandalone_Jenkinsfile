@@ -1,0 +1,106 @@
+@Library('entapps-shared-library')_
+pipeline {
+    agent { label 'OIT-ENTAPPS-DEVOPS' }
+    options { skipDefaultCheckout() 
+    buildDiscarder(
+        logRotator(
+            // number of build logs to keep
+            numToKeepStr:'5',
+            // history to keep in days
+            daysToKeepStr: '5',
+            // artifacts are kept for days
+            artifactDaysToKeepStr: '5',
+            // number of builds have their artifacts kept
+            artifactNumToKeepStr: '5'
+        )
+    )
+    }
+    environment
+    {
+        pass = credentials('VNDEVKEY')
+        user = credentials('user')
+        vndevsshpass = credentials('sshvndev')
+        vaultpassword = credentials('vaultkey')
+    }
+
+    stages {
+        stage('Checkout Repo') {
+            steps {
+                script
+                {
+                    cleanWs()
+                    sh """ if [ -d "ci-repo" ];then echo "Directory exists";else mkdir ci-repo;fi """
+                    sh """ if [ -d "config-repo" ];then echo "Directory exists";else mkdir config-repo;fi """       
+                    dir('ci-repo')
+                    {
+                    checkout([
+                              $class: 'GitSCM', 
+                              branches: [[name: 'master']], 
+                              doGenerateSubmoduleConfigurations: false, 
+                              extensions: [[$class: 'CleanCheckout']], 
+                              submoduleCfg: [], 
+                              userRemoteConfigs: [[credentialsId: 'e0a06baa-a197-4f27-9210-c4a28d35511a', url: 'https://orahub.oci.oraclecorp.com/oit-entapps-devops/jenkins-pipeline.git']]
+                            ])
+                    }
+
+                   
+                }
+            }
+        }
+        stage ('Prepare Environment') {
+            steps {
+                script
+                {
+                    sh 'mv ci-repo/* config-repo'
+                    sh 'rm -rf ci-repo'
+                    dir('config-repo')
+                    {
+             envSet()
+             //setProperty()
+                    }
+
+            }
+        }
+       }
+       
+        
+        stage('Get Package') {
+            steps {
+                   script {
+                       dir('config-repo/ansible')
+                       {
+                        sh """ echo "${vaultpassword}" > ./.vault_pass.txt """
+                        if(env.environment_type == 'DEV')
+                        {
+                        sh """ ansible-vault view ./../key/jenkins.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        }
+                        else
+                        {
+                            sh """ ansible-vault view ./../key/epact.pem --vault-password-file=./.vault_pass.txt > servkey.pem """
+                        }
+                        sh """ chmod 400 servkey.pem """
+                        sh """ ansible-playbook -i hosts copydumpscript.yml -e 'envtype=${env.environment_type} serverHostUrl=${params.ServerHostUrl}'  """
+                        sh 'echo "Download of package started" --------------------------'
+                        sh """ ansible-playbook -i hosts download-package-standalone.yml -e 'artifact_url=${params.Artifact_Url}'  """
+            }
+                   }
+            }
+        }
+
+               stage('Deploy to the Server') {
+            steps {
+                   script {
+                       dir('config-repo/ansible')
+                       {
+                           def artifactname = "${params.Artifact_Url}"
+                           artifact_name = artifactname.split('/')[-1]
+                        sh """ ansible-playbook -i hosts dump_artifacts.yml -e 'deploymentFile=${artifact_name} deployDirectory=${params.directory_name}'  """
+
+            }
+                   }
+            }
+        }
+
+
+}
+}

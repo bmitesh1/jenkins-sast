@@ -1,0 +1,8 @@
+---
+- hosts: localhost
+  tasks:
+  - name: Download deploy package
+    get_url:
+      url: "{{ artifactoryUrl }}{{ artifactory_repo_name }}/release/{{ appnameRepo }}-{{ tagNum }}/{{ app_name}}"
+      dest: .
+      mode: '0755'

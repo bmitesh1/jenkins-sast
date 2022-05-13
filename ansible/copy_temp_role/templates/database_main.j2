@@ -1,0 +1,9 @@
+---
+- name: Database deployment
+  hosts: {{ envtype }}
+  gather_facts: false
+  #vars:
+  #  ansible_python_interpreter: /usr/bin/python3
+  #become: yes
+  roles:
+    - db_deploy_role
